@@ -3,6 +3,19 @@ import 'package:flutter/services.dart'; // FilteringTextInputFormatter
 
 void main() => runApp(const MyApp());
 
+/// NC4: model học phần (mã, tên, số tín chỉ).
+/// Mã học phần ngoài INT4211 là mã đặt tạm – thay bằng mã thật nếu có.
+class MonHoc {
+  final String ma;
+  final String ten;
+  final int soTinChi;
+
+  const MonHoc(this.ma, this.ten, this.soTinChi);
+
+  @override
+  String toString() => '$ma – $ten ($soTinChi tín chỉ)';
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -35,21 +48,30 @@ class _RegisterPageState extends State<RegisterPage> {
   final _hoTenCtrl = TextEditingController();
   final _mssvCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _ngaySinhCtrl = TextEditingController(); // NC1
 
-  static const _monHocs = ['Lập trình di động', 'Cơ sở dữ liệu', 'Trí tuệ nhân tạo', 'Kiểm thử phần mềm'];
+  // NC4: danh sách học phần là các đối tượng MonHoc thay vì chuỗi
+  static const List<MonHoc> _monHocs = [
+    MonHoc('INT4211', 'Lập trình di động', 3),
+    MonHoc('INT2203', 'Cơ sở dữ liệu', 3),
+    MonHoc('INT3401', 'Trí tuệ nhân tạo', 3),
+    MonHoc('INT3412', 'Kiểm thử phần mềm', 2),
+  ];
   static const _buoiHocs = ['Sáng', 'Chiều', 'Tối'];
 
-  String? _monHoc; // giá trị của Dropdown (null = chưa chọn)
+  MonHoc? _monHoc; // giá trị của Dropdown (null = chưa chọn)
   String _heDaoTao = 'Chính quy'; // giá trị của nhóm Radio
   final Set<String> _buoiDaChon = {}; // các Checkbox đã tick
   bool _nhanThongBao = true; // Switch
   double _soTinChi = 15; // Slider
+  DateTime? _ngaySinh; // NC1
 
   @override
   void dispose() {
     _hoTenCtrl.dispose();
     _mssvCtrl.dispose();
     _emailCtrl.dispose();
+    _ngaySinhCtrl.dispose(); // controller mới thêm thì cũng phải dispose
     super.dispose();
   }
 
@@ -80,6 +102,33 @@ class _RegisterPageState extends State<RegisterPage> {
     return null;
   }
 
+  // ---------------- NC1: chọn ngày sinh ----------------
+
+  /// Định dạng dd/MM/yyyy bằng cách ghép chuỗi thủ công (không cần package intl).
+  String _dinhDangNgay(DateTime d) {
+    final ngay = d.day.toString().padLeft(2, '0');
+    final thang = d.month.toString().padLeft(2, '0');
+    return '$ngay/$thang/${d.year}';
+  }
+
+  Future<void> _chonNgaySinh() async {
+    final chon = await showDatePicker(
+      context: context,
+      initialDate: _ngaySinh ?? DateTime(2005, 1, 1),
+      firstDate: DateTime(1980),
+      lastDate: DateTime.now(),
+      helpText: 'Chọn ngày sinh',
+    );
+    // Sau một lệnh await, màn hình có thể đã bị đóng → phải kiểm tra mounted
+    if (chon == null || !mounted) return;
+    setState(() {
+      _ngaySinh = chon;
+      _ngaySinhCtrl.text = _dinhDangNgay(chon);
+    });
+  }
+
+  // ---------------- Đăng ký & Làm lại ----------------
+
   void _dangKy() {
     // 1) Kiểm tra các trường của Form
     final hopLe = _formKey.currentState!.validate();
@@ -87,6 +136,13 @@ class _RegisterPageState extends State<RegisterPage> {
     if (_buoiDaChon.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Hãy chọn ít nhất một buổi học')),
+      );
+      return;
+    }
+    // NC2: kiểm tra phụ thuộc giữa hai control (hệ đào tạo ↔ buổi học)
+    if (_heDaoTao == 'Vừa làm vừa học' && !_buoiDaChon.contains('Tối')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hệ Vừa làm vừa học bắt buộc phải chọn buổi Tối')),
       );
       return;
     }
@@ -100,6 +156,7 @@ class _RegisterPageState extends State<RegisterPage> {
           'Họ tên: ${_hoTenCtrl.text.trim()}\n'
           'MSSV: ${_mssvCtrl.text.trim()}\n'
           'Email: ${_emailCtrl.text.trim()}\n'
+          'Ngày sinh: ${_ngaySinhCtrl.text}\n'
           'Học phần: $_monHoc\n'
           'Hệ đào tạo: $_heDaoTao\n'
           'Buổi học: ${(_buoiDaChon.toList()..sort()).join(", ")}\n'
@@ -118,21 +175,25 @@ class _RegisterPageState extends State<RegisterPage> {
     _hoTenCtrl.clear();
     _mssvCtrl.clear();
     _emailCtrl.clear();
+    _ngaySinhCtrl.clear();
     setState(() {
       _monHoc = null;
       _heDaoTao = 'Chính quy';
       _buoiDaChon.clear();
       _nhanThongBao = true;
       _soTinChi = 15;
+      _ngaySinh = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Lab F3 – Đăng ký học phần'),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        backgroundColor: scheme.primaryContainer,
       ),
       body: SafeArea(
         child: Form(
@@ -144,6 +205,7 @@ class _RegisterPageState extends State<RegisterPage> {
               TextFormField(
                 controller: _hoTenCtrl,
                 textInputAction: TextInputAction.next,
+                maxLength: 50, // NC3: Flutter tự hiện bộ đếm "x/50" dưới ô
                 decoration: const InputDecoration(
                   labelText: 'Họ và tên *',
                   prefixIcon: Icon(Icons.person_outline),
@@ -177,21 +239,48 @@ class _RegisterPageState extends State<RegisterPage> {
                 validator: _kiemTraEmail,
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
+
+              // NC1: ô ngày sinh chỉ đọc; chạm vào thì mở hộp chọn ngày
+              TextFormField(
+                controller: _ngaySinhCtrl,
+                readOnly: true,
+                onTap: _chonNgaySinh,
+                decoration: const InputDecoration(
+                  labelText: 'Ngày sinh *',
+                  hintText: 'dd/MM/yyyy',
+                  prefixIcon: Icon(Icons.cake_outlined),
+                  suffixIcon: Icon(Icons.calendar_month_outlined),
+                ),
+                validator: (v) => (v == null || v.isEmpty) ? 'Vui lòng chọn ngày sinh' : null,
+              ),
+              const SizedBox(height: 12),
+
+              // NC4: Dropdown<MonHoc> – value là đối tượng, không còn là chuỗi
+              DropdownButtonFormField<MonHoc>(
                 // initialValue chỉ đặt giá trị lúc khởi tạo; đổi key để ô được dựng lại
                 // khi bấm "Làm lại" (Flutter < 3.35 dùng tham số value thay cho initialValue)
-                key: ValueKey(_monHoc),
+                key: ValueKey(_monHoc?.ma),
                 initialValue: _monHoc,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Học phần đăng ký *',
                   prefixIcon: Icon(Icons.menu_book_outlined),
                 ),
                 items: _monHocs
-                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                    .map((m) => DropdownMenuItem(value: m, child: Text('${m.ma} – ${m.ten}')))
                     .toList(),
                 onChanged: (v) => setState(() => _monHoc = v),
                 validator: (v) => v == null ? 'Hãy chọn một học phần' : null,
               ),
+              // NC4: hiển thị số tín chỉ của học phần vừa chọn
+              if (_monHoc != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6, left: 12),
+                  child: Text(
+                    'Học phần này có ${_monHoc!.soTinChi} tín chỉ',
+                    style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600),
+                  ),
+                ),
 
               const SizedBox(height: 20),
               Text('Hệ đào tạo', style: Theme.of(context).textTheme.titleMedium),
@@ -214,6 +303,15 @@ class _RegisterPageState extends State<RegisterPage> {
                   ],
                 ),
               ),
+              // NC2: nhắc người dùng ngay khi chọn hệ cần ràng buộc
+              if (_heDaoTao == 'Vừa làm vừa học')
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'Lưu ý: hệ này bắt buộc chọn buổi Tối',
+                    style: TextStyle(color: scheme.tertiary),
+                  ),
+                ),
 
               const SizedBox(height: 8),
               Text('Buổi học mong muốn (chọn ≥ 1)',
